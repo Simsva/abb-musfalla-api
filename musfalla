@@ -17,14 +17,18 @@ if($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
   exit(0);
 }
 
-// Save PATCH request data
+// Get HTTP Basic credentials
+if (isset($_SERVER["HTTP_AUTHORIZATION"])) {
+  list($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW']) = explode(':' , base64_decode(substr($_SERVER['HTTP_AUTHORIZATION'], 6)));
+}
+
 switch($_SERVER["CONTENT_TYPE"]) {
 case "application/json":
-  $_PATCH = json_decode(file_get_contents("php://input"));
+  $_BODY = json_decode(file_get_contents("php://input"), true);
   break;
 
 default:
-  parse_str(file_get_contents("php://input"), $_PATCH);
+  parse_str(file_get_contents("php://input"), $_BODY);
   break;
 }
 
@@ -109,6 +113,29 @@ function parse_type($var, $type) {
   return $var;
 }
 
+function unauthorized() {
+  http_response_code(401);
+  header("WWW-Authenticate: Basic realm=\"Musfalla\"");
+  die("Unauthorized");
+}
+
+function is_authorized($uid, $strict = false) {
+  global $dbconn, $authorization;
+
+  if($authorization == $uid) {
+    return true;
+  } else {
+    pg_prepare($dbconn, "checkAuth", "SELECT public FROM account WHERE id = $1");
+    $result = pg_execute($dbconn, "checkAuth", array($uid));
+    $result = pg_fetch_array($result);
+    if($strict)
+      return false;
+    else
+      // PostgreSQL Boolean is apparently 't' or 'f'
+      return isset($result["public"]) ? $result["public"] == 't' : false;
+  }
+}
+
 function require_args($vars, $len) {
   if (sizeof($vars) < $len) {
     http_response_code(400);
@@ -135,14 +162,41 @@ $field_types = array(
   ),
 );
 
+// Set $authorization to user id if authenticated
+$authorization = null;
+if(isset($_SERVER["PHP_AUTH_USER"]) && isset($_SERVER["PHP_AUTH_PW"])) {
+  pg_prepare($dbconn, "authorization", "SELECT pass, id FROM account WHERE email = $1")
+    or die("Failed to prepare query: " . pg_last_error());
+  $result = pg_execute($dbconn, "authorization", array($_SERVER["PHP_AUTH_USER"]));
+  $result = pg_fetch_array($result);
+
+  $pass = $result["pass"];
+  $uid = $result["id"];
+  if(isset($uid)) {
+    if(isset($pass)) {
+      if(password_verify($_SERVER["PHP_AUTH_PW"], $pass)) {
+        $authorization = $uid;
+      } else {
+        http_response_code(401);
+        die("Wrong credentials");
+      }
+    } else {
+      $authorization = $uid;
+    }
+  }
+}
+
 $method = "{$_SERVER["REQUEST_METHOD"]} {$api_vars[0]}";
-switch ($method) {
+switch($method) {
+case "GET account":
+
 case "GET dump":
 case "POST dump":
 case "PATCH dump":
   echo "\$_SERVER: ";     print_r($_SERVER);
   echo "<br/>\$_POST: ";  print_r($_POST);
-  echo "<br/>\$_PATCH: "; print_r($_PATCH);
+  echo "<br/>\$_BODY: "; print_r($_BODY);
+  echo "<br/>\$authorization: "; echo $authorization;
   break;
 
 default:
