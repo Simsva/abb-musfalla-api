@@ -1,0 +1,41 @@
+#+Title: Musfälla API
+#+AUTHOR: Simon Ericsson
+#+EMAIL: simon@krlsg.se
+
+#+DESCRIPTION: Documentation for the Musfälla API
+#+LANGUAGE: en
+
+#+OPTIONS: ^:{}
+#+OPTIONS: toc:3
+
+An API for use by our smart rat trap. Source code availabe at [[https://github.com/Simsva/abb-musfalla-api][GitHub]].
+
+See [[https://github.com/Simsva/abb-musfalla-api/blob/master/nginx_example.conf][nginx_example.conf]] for information on running the API.
+
+* Basic information
+** Path arguments
+Arguments provided at the end of the API URL separated by slashes.
+
+/Example/: ~.../list/arg1/arg2~, where ~arg1~ and ~arg2~ are path arguments.
+
+** Query arguments
+Arguments provided using the query string at the end of the URL.
+
+/Example/: ~.../entries?fields=name,description&limit=50~, where ~fields = name,description~ and ~limit = 50~ are query arguments.
+
+** POST/PATCH arguments
+All POST and PATCH arguments should be provided as a "query string."
+
+/Example/: ~arg1=1&arg2=true~
+
+* TODO Planned [0/0] [100%]
+
+* API Usage
+*Base URL*: [[https://api.simsva.se/musfalla/]] (Or another URL pointed to the same PHP script provided in the repository)
+API paths are appended at the end of the *Base URL*.
+
+** Paths
+*** GET/POST/PATCH dump
+Dumps request data.
+
+Only used for testing.

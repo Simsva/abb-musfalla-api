@@ -1,0 +1,151 @@
+<?php // -*- mode: php; -*-
+// vim: ft=php sw=2 ts=2 et
+
+// Load config
+$config = include("./config/musfalla.php");
+
+// CORS
+header("Access-Control-Allow-Origin: " . $config["origin"]);
+header("Access-Control-Allow-Methods: GET, POST, PATCH, OPTIONS");
+header("Access-Control-Allow-Credentials: true");
+
+if($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
+  header("Access-Control-Allow-Headers: Origin, Content-Type, Accept, X-Requested-With");
+  header("Access-Control-Max-Age: 86400");
+  header("Cache-Control: public, max-age=86400");
+  header("Vary: origin");
+  exit(0);
+}
+
+// Save PATCH request data
+switch($_SERVER["CONTENT_TYPE"]) {
+case "application/json":
+  $_PATCH = json_decode(file_get_contents("php://input"));
+  break;
+
+default:
+  parse_str(file_get_contents("php://input"), $_PATCH);
+  break;
+}
+
+// Get input variables
+$api_vars = preg_split("/\//", ltrim($_SERVER["PATH_INFO"], '/'));
+parse_str($_SERVER["QUERY_STRING"], $query_vars);
+
+// Filter out empty variables
+$api_vars = array_filter($api_vars, static function($var){return $var !== NULL && $var !== "";} );
+
+$api_url = "{$_SERVER["REQUEST_SCHEME"]}://{$_SERVER["HTTP_HOST"]}{$_SERVER["SCRIPT_NAME"]}";
+
+// Connect to Postgres
+$pg_auth = "";
+foreach(array("host", "dbname", "user", "password") as $key) {
+  if(array_key_exists($key, $config))
+    $pg_auth .= " " . $key . "=" . $config[$key];
+}
+$dbconn = pg_connect(ltrim($pg_auth))
+  or die("Could not connect to Postgres: " . pg_last_error());
+
+// Get only specified fields/columns from Postgres query
+// Safer than using user controlled data in the query
+function get_fields($result, $fields, $types) {
+  if (isset($fields) && $fields !== "*") {
+    $fields = preg_split("/,/", $fields);
+
+    $out = array();
+    while ($row = pg_fetch_array($result, null, PGSQL_ASSOC)) {
+      $filtered_row = array();
+      foreach ($fields as $field) {
+        if (isset($row[$field])) {
+          $filtered_row[$field] = parse_type($row[$field], $types[$field]??"string");
+        }
+      }
+      $out[] = $filtered_row;
+    }
+  } else {
+    $out = array();
+    while($row = pg_fetch_array($result, null, PGSQL_ASSOC)) {
+      foreach($row as $field => &$val) {
+        $val = parse_type($val, $types[$field]??"string");
+      }
+      $out[] = $row;
+    }
+  }
+  return $out;
+}
+
+function sql_bool($x) {
+  return ($x == "t")
+       ? "true"
+       : (($x == "f")
+       ? "false"
+       : $x);
+}
+
+function as_sql_bool($x) {
+  return ($x == true)
+       ? "t"
+       : (($x == false)
+       ? "f"
+       : $x);
+}
+
+function parse_type($var, $type) {
+  $o = array("flags"=>FILTER_NULL_ON_FAILURE);
+  switch($type) {
+  case "int":
+    $var = filter_var($var, FILTER_VALIDATE_INT, $o);
+    break;
+
+  case "float":
+    $var = filter_var($var, FILTER_VALIDATE_FLOAT, $o);
+    break;
+
+  case "bool":
+    $var = filter_var(sql_bool($var), FILTER_VALIDATE_BOOL, $o);
+    break;
+  }
+
+  return $var;
+}
+
+function require_args($vars, $len) {
+  if (sizeof($vars) < $len) {
+    http_response_code(400);
+    die("Invalid arguments");
+  }
+  return true;
+}
+
+$field_types = array(
+  "event" => array(
+    "t" => "int",
+    "device_id" => "int",
+    "type" => "nyi",
+  ),
+  "device" => array(
+    "id" => "int",
+    "name" => "nyi",
+    "owner_id" => "int",
+  ),
+  "account" => array(
+    "id" => "int",
+    "name" => "nyi",
+    "pass" => "nyi",
+  ),
+);
+
+$method = "{$_SERVER["REQUEST_METHOD"]} {$api_vars[0]}";
+switch ($method) {
+case "GET dump":
+case "POST dump":
+case "PATCH dump":
+  echo "\$_SERVER: ";     print_r($_SERVER);
+  echo "<br/>\$_POST: ";  print_r($_POST);
+  echo "<br/>\$_PATCH: "; print_r($_PATCH);
+  break;
+
+default:
+  http_response_code(404);
+  die("Invalid method: " . $method);
+}
