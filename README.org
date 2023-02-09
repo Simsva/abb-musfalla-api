@@ -8,7 +8,7 @@
 #+OPTIONS: ^:{}
 #+OPTIONS: toc:3
 
-An API for use by our smart rat trap. Source code availabe at [[https://github.com/Simsva/abb-musfalla-api][GitHub]].
+An API for use by our smart rat trap. Source code availabe at [[https://github.com/Simsva/abb-musfalla-api][GitHub]]. Documentation availabe at GitHub and at [[https://api.simsva.se/musfalla_docs.html][simsva.se]].
 
 See [[https://github.com/Simsva/abb-musfalla-api/blob/master/nginx_example.conf][nginx_example.conf]] for information on running the API.
 
@@ -24,9 +24,11 @@ Arguments provided using the query string at the end of the URL.
 /Example/: ~.../entries?fields=name,description&limit=50~, where ~fields = name,description~ and ~limit = 50~ are query arguments.
 
 ** POST/PATCH arguments
-All POST and PATCH arguments should be provided as a "query string."
+All POST and PATCH arguments are parsed as "query strings" by default:
 
 /Example/: ~arg1=1&arg2=true~
+
+The ~Content-Type~ header can change this behaviour. Currently supported formats are ~application/x-www-form-urlencoded~ and ~application/json~.
 
 * TODO Planned [0/0] [100%]
 
