@@ -39,3 +39,22 @@ API paths are appended at the end of the *Base URL*.
 Dumps request data.
 
 Only used for testing.
+
+*** POST authenticate
+Generates an authentication token for an account with the provided credentials.
+
+**** POST arguments:
+- *email* (/required/)
+
+  E-mail of the account.
+
+- *password* (/required/)
+
+  Password of the account.
+
+**** Status codes:
+- ~400~ The required arguments are not passed.
+
+- ~401~ The password provided is wrong.
+
+- ~404~ No matching account found.

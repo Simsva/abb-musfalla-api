@@ -17,11 +17,6 @@ if($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
   exit(0);
 }
 
-// Get HTTP Basic credentials
-if (isset($_SERVER["HTTP_AUTHORIZATION"])) {
-  list($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW']) = explode(':' , base64_decode(substr($_SERVER['HTTP_AUTHORIZATION'], 6)));
-}
-
 switch($_SERVER["CONTENT_TYPE"]) {
 case "application/json":
   $_BODY = json_decode(file_get_contents("php://input"), true);
@@ -113,35 +108,27 @@ function parse_type($var, $type) {
   return $var;
 }
 
-function unauthorized() {
-  http_response_code(401);
-  header("WWW-Authenticate: Basic realm=\"Musfalla\"");
-  die("Unauthorized");
+function generate_token($uid) {
+  global $dbconn;
+
+  $token = "";
+  while(true) {
+    $token = bin2hex(random_bytes(32));
+
+    pg_prepare($dbconn, "gen_token", "INSERT INTO auth_token (uid, token) VALUES ($1, $2)")
+      or die("Failed to prepare query: " . pg_last_error());
+
+    if(pg_execute($dbconn, "gen_token", array($uid, $token)))
+      break;
+  }
+
+  return $token;
 }
 
-function is_authorized($uid, $strict = false) {
-  global $dbconn, $authorization;
+function is_authenticated($uid) {
+  global $authentication;
 
-  if($authorization == $uid) {
-    return true;
-  } else {
-    pg_prepare($dbconn, "checkAuth", "SELECT public FROM account WHERE id = $1");
-    $result = pg_execute($dbconn, "checkAuth", array($uid));
-    $result = pg_fetch_array($result);
-    if($strict)
-      return false;
-    else
-      // PostgreSQL Boolean is apparently 't' or 'f'
-      return isset($result["public"]) ? $result["public"] == 't' : false;
-  }
-}
-
-function require_args($vars, $len) {
-  if (sizeof($vars) < $len) {
-    http_response_code(400);
-    die("Invalid arguments");
-  }
-  return true;
+  return $authentication === $uid;
 }
 
 $field_types = array(
@@ -163,32 +150,44 @@ $field_types = array(
 );
 
 // Set $authorization to user id if authenticated
-$authorization = null;
-if(isset($_SERVER["PHP_AUTH_USER"]) && isset($_SERVER["PHP_AUTH_PW"])) {
-  pg_prepare($dbconn, "authorization", "SELECT pass, id FROM account WHERE email = $1")
+$authentication = null;
+if(isset($_SERVER["HTTP_AUTHORIZATION"])) {
+  pg_prepare($dbconn, "check_token", "SELECT uid FROM auth_token WHERE token = $1 AND until > now()")
     or die("Failed to prepare query: " . pg_last_error());
-  $result = pg_execute($dbconn, "authorization", array($_SERVER["PHP_AUTH_USER"]));
+  $result = pg_execute($dbconn, "check_token", array($_SERVER["HTTP_AUTHORIZATION"]));
   $result = pg_fetch_array($result);
 
-  $pass = $result["pass"];
-  $uid = $result["id"];
-  if(isset($uid)) {
-    if(isset($pass)) {
-      if(password_verify($_SERVER["PHP_AUTH_PW"], $pass)) {
-        $authorization = $uid;
-      } else {
-        http_response_code(401);
-        die("Wrong credentials");
-      }
-    } else {
-      $authorization = $uid;
-    }
+  if(isset($result["uid"])) {
+    $authentication = $result["uid"];
   }
 }
 
 $method = "{$_SERVER["REQUEST_METHOD"]} {$api_vars[0]}";
 switch($method) {
-case "GET account":
+case "POST authenticate":
+  if(!isset($_BODY["email"]) || !isset($_BODY["password"])) {
+    http_response_code(400);
+    die("email and password need to be provided");
+  }
+  pg_prepare($dbconn, "authentication", "SELECT pass, id FROM account WHERE email = $1")
+    or die("Failed to prepare query: " . pg_last_error());
+  $result = pg_execute($dbconn, "authentication", array($_BODY["email"]));
+  $result = pg_fetch_array($result);
+
+  $pass = $result["pass"];
+  $uid = $result["id"];
+  if(!isset($uid) || !isset($pass)) {
+    http_response_code(404);
+    die("Account not found");
+  }
+
+  if(!password_verify($_BODY["password"], $pass)) {
+    http_response_code(401);
+    die("Wrong credentials");
+  }
+
+  die(generate_token($uid));
+  break;
 
 case "GET dump":
 case "POST dump":
@@ -196,7 +195,7 @@ case "PATCH dump":
   echo "\$_SERVER: ";     print_r($_SERVER);
   echo "<br/>\$_POST: ";  print_r($_POST);
   echo "<br/>\$_BODY: "; print_r($_BODY);
-  echo "<br/>\$authorization: "; echo $authorization;
+  echo "<br/>\$authentication: "; echo $authentication;
   break;
 
 default:
