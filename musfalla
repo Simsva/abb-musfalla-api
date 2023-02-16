@@ -136,12 +136,12 @@ function generate_token($uid) {
 }
 
 function is_authenticated($uid = null) {
-  global $authentication;
+  global $authorization;
 
   if($uid !== null)
-    return $authentication === $uid;
+    return $authorization === $uid;
   else
-    return $authentication !== null;
+    return $authorization !== null;
 }
 
 $field_types = array(
@@ -163,7 +163,7 @@ $field_types = array(
 );
 
 // Set $authorization to user id if authenticated
-$authentication = null;
+$authorization = null;
 if(isset($_SERVER["HTTP_AUTHORIZATION"])) {
   pg_prepare($dbconn, "check_token", "
 SELECT uid
@@ -174,7 +174,7 @@ WHERE token = $1 AND until > now()")
   $result = pg_fetch_array($result);
 
   if(isset($result["uid"])) {
-    $authentication = $result["uid"];
+    $authorization = $result["uid"];
   }
 }
 
@@ -213,21 +213,53 @@ case "GET account":
     http_response_code(401);
     die("Not logged in");
   }
-  pg_prepare($dbconn, "get_account", "
-SELECT a.id, a.name, a.email, string_agg(d.id::varchar, ',')
-AS devices FROM account AS a, device AS d
-WHERE a.id = $1 and d.owner_id = a.id
+  pg_prepare($dbconn, "get_account_devices", "
+SELECT a.id, a.name, a.email, string_agg(d.id::varchar, ',') AS devices
+FROM account AS a, device AS d
+WHERE a.id = $1 AND d.owner_id = a.id
 GROUP BY a.id, a.name, a.email")
     or die("Failed to prepare query: " . pg_last_error());
-  $result = pg_execute($dbconn, "get_account", array($authentication));
+  $result = pg_execute($dbconn, "get_account_devices", array($authorization));
 
   $data = json_encode(get_fields(
     $result,
     $query_vars["fields"]??null,
     $field_types["account"]??null
-  )??null);
+  )[0]??null);
+  if($data != "null") echo $data;
+
+  /* if $data is null, account may not have any devices */
+  pg_prepare($dbconn, "get_account", "
+SELECT id, name, email, '' AS devices
+FROM account
+WHERE id = $1")
+    or die("Failed to prepare query: " . pg_last_error());
+  $result = pg_execute($dbconn, "get_account", array($authorization));
+
+  $data = json_encode(get_fields(
+    $result,
+    $query_vars["fields"]??null,
+    $field_types["account"]??null
+  )[0]??null);
   if($data == "null") http_response_code(404);
   echo $data;
+  break;
+
+case "POST account":
+  if(!isset($_BODY["email"]) || !isset($_BODY["password"])) {
+    http_response_code(400);
+    die("'email' and 'password' POST arguments need to be provided");
+  }
+
+  pg_prepare($dbconn, "post_account", "
+INSERT INTO account (name, email, pass)
+VALUES ($1, $2, $3)")
+    or die("Failed to prepare query: " . pg_last_error());
+  pg_execute($dbconn, "post_account", array(
+    $_BODY["name"]??"",
+    $_BODY["email"],
+    password_hash($_BODY["password"], PASSWORD_BCRYPT),
+  ));
   break;
 
 case "GET devices":
@@ -240,7 +272,7 @@ SELECT id, name, owner_id
 FROM device
 WHERE owner_id = $1")
     or die("Failed to prepare query: " . pg_last_error());
-  $result = pg_execute($dbconn, "get_device", array($authentication));
+  $result = pg_execute($dbconn, "get_device", array($authorization));
 
   $data = json_encode(get_fields(
     $result,
@@ -249,6 +281,26 @@ WHERE owner_id = $1")
   )??null);
   if($data == "null") http_response_code(404);
   echo $data;
+  break;
+
+case "POST devices":
+  if(!is_authenticated()) {
+    http_response_code(401);
+    die("Not logged in");
+  }
+
+  $secret = bin2hex(random_bytes(32));
+  pg_prepare($dbconn, "post_device", "
+INSERT INTO device (name, owner_id, secret)
+VALUES ($1, $2, $3)")
+    or die("Failed to prepare query: " . pg_last_error());
+  pg_execute($dbconn, "post_device", array(
+    $_BODY["name"]??"",
+    $authorization,
+    $secret,
+  ));
+
+  echo $secret;
   break;
 
 case "GET events":
@@ -263,7 +315,7 @@ FROM event_unix AS e, device AS d
 WHERE d.owner_id = $1 AND e.device_id = d.id
 ORDER BY e.t ${order_dir}")
     or die("Failed to prepare query: " . pg_last_error());
-  $result = pg_execute($dbconn, "get_event", array($authentication));
+  $result = pg_execute($dbconn, "get_event", array($authorization));
 
   $data = json_encode(get_fields(
     $result,
@@ -280,7 +332,7 @@ case "PATCH dump":
   echo "\$_SERVER: ";     print_r($_SERVER);
   echo "<br/>\$_POST: ";  print_r($_POST);
   echo "<br/>\$_BODY: "; print_r($_BODY);
-  echo "<br/>\$authentication: "; echo $authentication;
+  echo "<br/>\$authorization: "; echo $authorization;
   break;
 
 default:

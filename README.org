@@ -76,6 +76,22 @@ Gets account infomration for the account associated with the provided authorizat
 - ~401~ Not authorized
 - ~404~ Nothing returned
 
+*** POST account
+Registers a new account.
+
+**** POST arguments:
+- *email* (/required/)
+
+  E-mail of the account.
+
+- *password* (/required/)
+
+  Password of the account.
+
+- *name*
+
+  Name of the account, defaults to an empty string.
+
 *** GET devices
 Gets all devices associated with the provided authorization token.
 
@@ -92,6 +108,20 @@ Gets all devices associated with the provided authorization token.
 **** Status codes:
 - ~401~ Not authorized
 - ~404~ Nothing returned
+
+*** POST devices
+Add a device to the account associated with the provided authorization token.
+Returns a secret identifying the device which can not be generated again.
+
+**** Headers:
+- *Authorization* (/required/)
+
+  An authorization token (very non-standard).
+
+**** POST arguments:
+- *name*
+
+  Name of the device, defaults to an empty string.
 
 *** GET events
 Gets events for all devices associated with the provided authorization token.

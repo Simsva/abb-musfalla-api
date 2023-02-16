@@ -9,7 +9,8 @@ CREATE TABLE account (
 CREATE TABLE device (
   id SERIAL,
   name VARCHAR,
-  owner_id INT NOT NULL
+  owner_id INT NOT NULL,
+  secret CHAR(64) NOT NULL
 );
 CREATE TABLE event (
   t TIMESTAMP WITHOUT TIME ZONE NOT NULL,
