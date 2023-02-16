@@ -151,6 +151,24 @@ WHERE uid = $1");
   pg_execute($dbconn, "invalidate_tokens", array($uid));
 }
 
+function invalidate_account($uid) {
+  global $dbconn;
+
+  prepare($dbconn, "invalidate_account_events", "
+DELETE FROM event
+WHERE device_id IN (
+  SELECT id
+  FROM device
+  WHERE owner_id = $1
+)");
+  pg_execute($dbconn, "invalidate_account_events", array($uid));
+
+  prepare($dbconn, "invalidate_account_devices", "
+DELETE FROM device
+WHERE owner_id = $1");
+  pg_execute($dbconn, "invalidate_account_devices", array($uid));
+}
+
 function is_authenticated($uid = null) {
   global $authorization;
 
@@ -361,9 +379,10 @@ case "DELETE account":
   prepare($dbconn, "delete_account", "
 DELETE FROM account
 WHERE id = $1");
-  if(pg_execute($dbconn, "delete_account", array($authorization)))
+  if(pg_execute($dbconn, "delete_account", array($authorization))) {
     invalidate_tokens($authorization);
-  // TODO: remove devices and events linked to account
+    invalidate_account($authorization);
+  }
   break;
 
 case "GET devices":

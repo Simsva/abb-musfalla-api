@@ -45,6 +45,8 @@ Only used for testing.
 *** POST authenticate
 Generates an authorization token for an account with the provided credentials.
 
+Every token is valid for 24 hours, or until the next password change.
+
 **** POST arguments:
 - *email* (/required/)
 
@@ -95,6 +97,8 @@ Registers a new account.
 *** PATCH account
 Modifies the account associated with the provided authorization token.
 
+Modifying password invalidates all active authorization tokens.
+
 **** Headers:
 - *Authorization* (/required/)
 
@@ -115,6 +119,8 @@ Modifies the account associated with the provided authorization token.
 
 *** DELETE account
 Deletes the account associated with the provided authorization token.
+
+Also deletes owned devices and their events.
 
 **** Headers:
 - *Authorization* (/required/)
