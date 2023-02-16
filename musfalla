@@ -125,7 +125,9 @@ function generate_token($uid) {
   while(true) {
     $token = bin2hex(random_bytes(32));
 
-    pg_prepare($dbconn, "gen_token", "INSERT INTO auth_token (uid, token) VALUES ($1, $2)")
+    pg_prepare($dbconn, "gen_token", "
+INSERT INTO auth_token (uid, token)
+VALUES ($1, $2)")
       or die("Failed to prepare query: " . pg_last_error());
 
     if(pg_execute($dbconn, "gen_token", array($uid, $token)))
@@ -133,6 +135,16 @@ function generate_token($uid) {
   }
 
   return $token;
+}
+
+function invalidate_tokens($uid) {
+  global $dbconn;
+
+  pg_prepare($dbconn, "invalidate_tokens", "
+DELETE FROM auth_token
+WHERE uid = $1")
+      or die("Failed to prepare query: " . pg_last_error());
+  pg_execute($dbconn, "invalidate_tokens", array($uid));
 }
 
 function is_authenticated($uid = null) {
@@ -280,13 +292,14 @@ case "PATCH account":
   $keys = "";
   $vars = array($authorization);
   $i = 2;
+  $changed_password = false;
   foreach($_BODY as $key => $val) {
     if(array_key_exists($key, $allowed_keys)) {
       if($key === "password") {
-        /* TODO: invalidate tokens */
         /* password gets special treatment */
         $key = "pass";
         $val = password_hash($val, PASSWORD_BCRYPT);
+        $changed_password = true;
       }
 
       $keys .= "{$key} = $" . $i++ . ", ";
@@ -306,7 +319,8 @@ case "PATCH account":
   $sql = "UPDATE account SET " . $keys . " WHERE id = $1";
   pg_prepare($dbconn, "patch_account", $sql)
     or die("Failed to prepare query: " . pg_last_error());
-  pg_execute($dbconn, "patch_account", $vars);
+  if(pg_execute($dbconn, "patch_account", $vars) && $changed_password)
+    invalidate_tokens($authorization);
   break;
 
 case "DELETE account":
@@ -315,14 +329,12 @@ case "DELETE account":
     die("Not logged in");
   }
 
-  /* TODO: invalidate tokens */
   pg_prepare($dbconn, "delete_account", "
 DELETE FROM account
 WHERE id = $1")
     or die("Failed to prepare query: " . pg_last_error());
-  pg_execute($dbconn, "delete_account", array(
-    $authorization,
-  ));
+  if(pg_execute($dbconn, "delete_account", array($authorization)))
+    invalidate_tokens($authorization);
   break;
 
 case "GET devices":
