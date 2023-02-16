@@ -43,7 +43,7 @@ Dumps request data.
 Only used for testing.
 
 *** POST authenticate
-Generates an authentication token for an account with the provided credentials.
+Generates an authorization token for an account with the provided credentials.
 
 **** POST arguments:
 - *email* (/required/)
@@ -56,7 +56,60 @@ Generates an authentication token for an account with the provided credentials.
 
 **** Status codes:
 - ~400~ The required arguments are not passed.
-
 - ~401~ The password provided is wrong.
-
 - ~404~ No matching account found.
+
+*** GET account
+Gets account infomration for the account associated with the provided authorization token.
+
+**** Headers:
+- *Authorization* (/required/)
+
+  An authorization token (very non-standard).
+
+**** Query arguments:
+- *fields*
+
+  Comma separated list of which fields to return.
+
+**** Status codes:
+- ~401~ Not authorized
+- ~404~ Nothing returned
+
+*** GET devices
+Gets all devices associated with the provided authorization token.
+
+**** Headers:
+- *Authorization* (/required/)
+
+  An authorization token (very non-standard).
+
+**** Query arguments:
+- *fields*
+
+  Comma separated list of which fields to return.
+
+**** Status codes:
+- ~401~ Not authorized
+- ~404~ Nothing returned
+
+*** GET events
+Gets events for all devices associated with the provided authorization token.
+
+**** Headers:
+- *Authorization* (/required/)
+
+  An authorization token (very non-standard).
+
+**** Query arguments:
+- *fields*
+
+  Comma separated list of which fields to return.
+
+- *reverse*
+
+  If present, will sort events by ascending instead of descending time.
+
+**** Status codes:
+- ~401~ Not authorized
+- ~404~ Nothing returned
