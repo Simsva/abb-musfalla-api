@@ -218,3 +218,18 @@ Gets events for all devices associated with the provided authorization token.
 **** Status codes:
 - ~401~ Not authenticated
 - ~404~ Nothing returned
+
+*** POST events
+Adds an event from a device.
+
+**** Headers:
+- *Authorization* (/required/)
+
+  Device secret (very non-standard).
+
+**** POST arguments:
+- *type*
+
+  Type of event.
+
+  Accepted values are ~close~ or ~open.~
