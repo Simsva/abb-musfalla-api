@@ -45,6 +45,12 @@ foreach(array("host", "dbname", "user", "password") as $key) {
 $dbconn = pg_connect(ltrim($pg_auth))
   or die("Could not connect to Postgres: " . pg_last_error());
 
+// prepare query and handle error
+function prepare($dbconn, $name, $sql) {
+  pg_prepare($dbconn, $name, $sql)
+    or die("Failed to prepare query: " . pg_last_error());
+}
+
 // Get only specified fields/columns from Postgres query
 // Safer than using user controlled data in the query
 function get_fields($result, $fields, $types) {
@@ -92,7 +98,7 @@ function as_sql_bool($x) {
 function parse_type($var, $type) {
   $o = array("flags"=>FILTER_NULL_ON_FAILURE);
 
-  /* this is disgusting but works */
+  // this is disgusting but works
   $type = explode(":", $type);
   switch($type[0]) {
   case "array":
@@ -125,10 +131,9 @@ function generate_token($uid) {
   while(true) {
     $token = bin2hex(random_bytes(32));
 
-    pg_prepare($dbconn, "gen_token", "
+    prepare($dbconn, "gen_token", "
 INSERT INTO auth_token (uid, token)
-VALUES ($1, $2)")
-      or die("Failed to prepare query: " . pg_last_error());
+VALUES ($1, $2)");
 
     if(pg_execute($dbconn, "gen_token", array($uid, $token)))
       break;
@@ -140,10 +145,9 @@ VALUES ($1, $2)")
 function invalidate_tokens($uid) {
   global $dbconn;
 
-  pg_prepare($dbconn, "invalidate_tokens", "
+  prepare($dbconn, "invalidate_tokens", "
 DELETE FROM auth_token
-WHERE uid = $1")
-      or die("Failed to prepare query: " . pg_last_error());
+WHERE uid = $1");
   pg_execute($dbconn, "invalidate_tokens", array($uid));
 }
 
@@ -154,6 +158,15 @@ function is_authenticated($uid = null) {
     return $authorization === $uid;
   else
     return $authorization !== null;
+}
+
+function is_device($device_id = null) {
+  global $device;
+
+  if($device_id !== null)
+    return $device === $device_id;
+  else
+    return $device !== null;
 }
 
 $field_types = array(
@@ -174,21 +187,42 @@ $field_types = array(
   ),
 );
 
-// Set $authorization to user id if authenticated
 $authorization = null;
+$device = null;
 if(isset($_SERVER["HTTP_AUTHORIZATION"])) {
-  pg_prepare($dbconn, "check_token", "
+  // Set $authorization to user id if authenticated
+  prepare($dbconn, "check_auth_token", "
 SELECT uid
 FROM auth_token
-WHERE token = $1 AND until > now()")
-    or die("Failed to prepare query: " . pg_last_error());
-  $result = pg_execute($dbconn, "check_token", array($_SERVER["HTTP_AUTHORIZATION"]));
+WHERE token = $1 AND until > now()");
+  $result = pg_execute($dbconn, "check_auth_token", array(
+    $_SERVER["HTTP_AUTHORIZATION"],
+  ));
   $result = pg_fetch_array($result);
 
   if(isset($result["uid"])) {
     $authorization = $result["uid"];
+    goto end_auth;
+  }
+
+  // Set $device to device id if a correct secret is provided
+  // Assumes these are unique and do not overlap with auth_tokens (because they
+  // are 256-bit)
+  prepare($dbconn, "check_device_secret", "
+SELECT id
+FROM device
+WHERE secret = $1");
+  $result = pg_execute($dbconn, "check_device_secret", array(
+    $_SERVER["HTTP_AUTHORIZATION"],
+  ));
+  $result = pg_fetch_array($result);
+
+  if(isset($result["id"])) {
+    $device = $result["id"];
+    goto end_auth;
   }
 }
+end_auth:
 
 $method = "{$_SERVER["REQUEST_METHOD"]} {$api_vars[0]}";
 switch($method) {
@@ -197,11 +231,10 @@ case "POST authenticate":
     http_response_code(400);
     die("email and password need to be provided");
   }
-  pg_prepare($dbconn, "authentication", "
+  prepare($dbconn, "authentication", "
 SELECT pass, id
 FROM account
-WHERE email = $1")
-    or die("Failed to prepare query: " . pg_last_error());
+WHERE email = $1");
   $result = pg_execute($dbconn, "authentication", array($_BODY["email"]));
   $result = pg_fetch_array($result);
 
@@ -225,12 +258,11 @@ case "GET account":
     http_response_code(401);
     die("Not logged in");
   }
-  pg_prepare($dbconn, "get_account_devices", "
+  prepare($dbconn, "get_account_devices", "
 SELECT a.id, a.name, a.email, string_agg(d.id::varchar, ',') AS devices
 FROM account AS a, device AS d
 WHERE a.id = $1 AND d.owner_id = a.id
-GROUP BY a.id, a.name, a.email")
-    or die("Failed to prepare query: " . pg_last_error());
+GROUP BY a.id, a.name, a.email");
   $result = pg_execute($dbconn, "get_account_devices", array($authorization));
 
   $data = json_encode(get_fields(
@@ -243,12 +275,11 @@ GROUP BY a.id, a.name, a.email")
     break;
   }
 
-  /* if $data is null, account may not have any devices */
-  pg_prepare($dbconn, "get_account", "
+  // if $data is null, account may not have any devices
+  prepare($dbconn, "get_account", "
 SELECT id, name, email, '' AS devices
 FROM account
-WHERE id = $1")
-    or die("Failed to prepare query: " . pg_last_error());
+WHERE id = $1");
   $result = pg_execute($dbconn, "get_account", array($authorization));
 
   $data = json_encode(get_fields(
@@ -266,10 +297,9 @@ case "POST account":
     die("'email' and 'password' POST arguments need to be provided");
   }
 
-  pg_prepare($dbconn, "post_account", "
+  prepare($dbconn, "post_account", "
 INSERT INTO account (name, email, pass)
-VALUES ($1, $2, $3)")
-    or die("Failed to prepare query: " . pg_last_error());
+VALUES ($1, $2, $3)");
   pg_execute($dbconn, "post_account", array(
     $_BODY["name"]??"",
     $_BODY["email"],
@@ -296,7 +326,7 @@ case "PATCH account":
   foreach($_BODY as $key => $val) {
     if(array_key_exists($key, $allowed_keys)) {
       if($key === "password") {
-        /* password gets special treatment */
+        // password gets special treatment
         $key = "pass";
         $val = password_hash($val, PASSWORD_BCRYPT);
         $changed_password = true;
@@ -317,8 +347,7 @@ case "PATCH account":
   }
 
   $sql = "UPDATE account SET " . $keys . " WHERE id = $1";
-  pg_prepare($dbconn, "patch_account", $sql)
-    or die("Failed to prepare query: " . pg_last_error());
+  prepare($dbconn, "patch_account", $sql);
   if(pg_execute($dbconn, "patch_account", $vars) && $changed_password)
     invalidate_tokens($authorization);
   break;
@@ -329,12 +358,12 @@ case "DELETE account":
     die("Not logged in");
   }
 
-  pg_prepare($dbconn, "delete_account", "
+  prepare($dbconn, "delete_account", "
 DELETE FROM account
-WHERE id = $1")
-    or die("Failed to prepare query: " . pg_last_error());
+WHERE id = $1");
   if(pg_execute($dbconn, "delete_account", array($authorization)))
     invalidate_tokens($authorization);
+  // TODO: remove devices and events linked to account
   break;
 
 case "GET devices":
@@ -342,11 +371,10 @@ case "GET devices":
     http_response_code(401);
     die("Not logged in");
   }
-  pg_prepare($dbconn, "get_device", "
+  prepare($dbconn, "get_device", "
 SELECT id, name, owner_id
 FROM device
-WHERE owner_id = $1")
-    or die("Failed to prepare query: " . pg_last_error());
+WHERE owner_id = $1");
   $result = pg_execute($dbconn, "get_device", array($authorization));
 
   $data = json_encode(get_fields(
@@ -365,10 +393,9 @@ case "POST devices":
   }
 
   $secret = bin2hex(random_bytes(32));
-  pg_prepare($dbconn, "post_device", "
+  prepare($dbconn, "post_device", "
 INSERT INTO device (name, owner_id, secret)
-VALUES ($1, $2, $3)")
-    or die("Failed to prepare query: " . pg_last_error());
+VALUES ($1, $2, $3)");
   pg_execute($dbconn, "post_device", array(
     $_BODY["name"]??"",
     $authorization,
@@ -388,11 +415,10 @@ case "PATCH devices":
     die("'id' needs to be provided");
   }
 
-  pg_prepare($dbconn, "patch_device_permission", "
+  prepare($dbconn, "patch_device_permission", "
 SELECT owner_id
 FROM device
-WHERE id = $1")
-    or die("Failed to prepare query: " . pg_last_error());
+WHERE id = $1");
   $result = pg_execute($dbconn, "patch_device_permission", array(
     $_BODY["id"],
   ));
@@ -428,8 +454,7 @@ WHERE id = $1")
   }
 
   $sql = "UPDATE device SET " . $keys . " WHERE id = $1";
-  pg_prepare($dbconn, "patch_device", $sql)
-    or die("Failed to prepare query: " . pg_last_error());
+  prepare($dbconn, "patch_device", $sql);
   pg_execute($dbconn, "patch_device", $vars);
   break;
 
@@ -443,11 +468,10 @@ case "DELETE devices":
     die("'id' query argument needs to be provided");
   }
 
-  pg_prepare($dbconn, "delete_device_permission", "
+  prepare($dbconn, "delete_device_permission", "
 SELECT owner_id
 FROM device
-WHERE id = $1")
-    or die("Failed to prepare query: " . pg_last_error());
+WHERE id = $1");
   $result = pg_execute($dbconn, "delete_device_permission", array(
     $query_vars["id"],
   ));
@@ -458,10 +482,9 @@ WHERE id = $1")
     die("You do not have permission to DELETE this device");
   }
 
-  pg_prepare($dbconn, "delete_device", "
+  prepare($dbconn, "delete_device", "
 DELETE FROM device
-WHERE id = $1")
-    or die("Failed to prepare query: " . pg_last_error());
+WHERE id = $1");
   pg_execute($dbconn, "delete_device", array(
     $query_vars["id"],
   ));
@@ -473,12 +496,11 @@ case "GET events":
     die("Not logged in");
   }
   $order_dir = isset($query_vars["reverse"]) ? "ASC" : "DESC";
-  pg_prepare($dbconn, "get_event", "
+  prepare($dbconn, "get_event", "
 SELECT e.t, e.device_id, e.type
 FROM event_unix AS e, device AS d
 WHERE d.owner_id = $1 AND e.device_id = d.id
-ORDER BY e.t {$order_dir}")
-    or die("Failed to prepare query: " . pg_last_error());
+ORDER BY e.t {$order_dir}");
   $result = pg_execute($dbconn, "get_event", array($authorization));
 
   $data = json_encode(get_fields(
@@ -490,13 +512,39 @@ ORDER BY e.t {$order_dir}")
   echo $data;
   break;
 
+case "POST events":
+  if(!is_device()) {
+    http_response_code(401);
+    die("No device matching secret");
+  }
+
+  $allowed_types = array(
+    "open", "close",
+  );
+  if(!in_array($_BODY["type"]??null, $allowed_types)) {
+    http_response_code(400);
+    die("Invalid event type");
+  }
+
+  prepare($dbconn, "post_event", "
+INSERT INTO event (device_id, type)
+VALUES ($1, $2)");
+  pg_execute($dbconn, "post_event", array(
+    $device,
+    $_BODY["type"],
+  ));
+
+  // TODO: optional mail notification
+  break;
+
 case "GET dump":
 case "POST dump":
 case "PATCH dump":
-  echo "\$_SERVER: ";     print_r($_SERVER);
-  echo "<br/>\$_POST: ";  print_r($_POST);
-  echo "<br/>\$_BODY: "; print_r($_BODY);
-  echo "<br/>\$authorization: "; echo $authorization;
+  echo "\$_SERVER:            "; print_r($_SERVER);
+  echo "<br/>\$_POST:         "; print_r($_POST);
+  echo "<br/>\$_BODY:         "; print_r($_BODY);
+  echo "<br/>\$authorization: {$authorization}";
+  echo "<br/>\$device:        {$device}";
   break;
 
 default:
