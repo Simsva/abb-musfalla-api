@@ -6,7 +6,7 @@ $config = include("./config/musfalla.php");
 
 // CORS
 header("Access-Control-Allow-Origin: " . $config["origin"]);
-header("Access-Control-Allow-Methods: GET, POST, PATCH, OPTIONS");
+header("Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS");
 header("Access-Control-Allow-Credentials: true");
 
 if($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
@@ -441,9 +441,9 @@ WHERE id = $1");
   $result = pg_execute($dbconn, "patch_device_permission", array(
     $_BODY["id"],
   ));
-  $result = pg_fetch_row($result);
+  $result = pg_fetch_array($result);
 
-  if($result[0] !== $authorization) {
+  if($result["owner_id"] !== $authorization) {
     http_response_code(403);
     die("You do not have permission to PATCH this device");
   }
@@ -494,9 +494,9 @@ WHERE id = $1");
   $result = pg_execute($dbconn, "delete_device_permission", array(
     $query_vars["id"],
   ));
-  $result = pg_fetch_row($result);
+  $result = pg_fetch_array($result);
 
-  if($result[0] !== $authorization) {
+  if($result["owner_id"] !== $authorization) {
     http_response_code(403);
     die("You do not have permission to DELETE this device");
   }
@@ -553,7 +553,44 @@ VALUES ($1, $2)");
     $_BODY["type"],
   ));
 
-  // TODO: optional mail notification
+  prepare($dbconn, "post_event_mail", "
+SELECT a.email, a.mail_notification, d.name
+FROM account AS a
+LEFT JOIN device AS d
+ON d.owner_id = a.id
+WHERE d.id = $1");
+  $result = pg_execute($dbconn, "post_event_mail", array($device));
+  $result = pg_fetch_array($result);
+
+  if(!isset($result["email"])) break;
+
+  $mail_subject = "";
+  $mail_body = "";
+  switch($_BODY["type"]) {
+  case "open":
+    $mail_subject = "Your mousetrap";
+    $mail_body = "Your mousetrap '" . $result["name"] . "' opened.";
+    break;
+
+  case "close":
+    $mail_subject = "Your mousetrap";
+    $mail_body = "Your mousetrap '" . $result["name"] . "' closed.";
+    break;
+  }
+
+  // sql bool
+  if($result["mail_notification"] === "t") {
+    mail(
+      $result["email"],
+      $mail_subject,
+      wordwrap($mail_body, 70),
+      array(
+        "From" => $config["mail_sender"],
+        "X-Mailer" => "PHP/" . phpversion(),
+      )
+    );
+    die("sent mail");
+  }
   break;
 
 case "GET dump":

@@ -6,5 +6,6 @@ return array(
   "user" => "postgres",
   "password" => "p455w0rd",
   "origin" => "*",
+  "mail_sender" => "musfalla@simsva.se",
 );
 ?>

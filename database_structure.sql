@@ -4,7 +4,8 @@ CREATE TABLE account (
   id SERIAL,
   name VARCHAR,
   pass CHAR(60) NOT NULL,
-  email VARCHAR NOT NULL
+  email VARCHAR NOT NULL,
+  mail_notification BOOLEAN NOT NULL DEFAULT true
 );
 CREATE TABLE device (
   id SERIAL,
