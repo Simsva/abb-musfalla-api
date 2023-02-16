@@ -165,7 +165,10 @@ $field_types = array(
 // Set $authorization to user id if authenticated
 $authentication = null;
 if(isset($_SERVER["HTTP_AUTHORIZATION"])) {
-  pg_prepare($dbconn, "check_token", "SELECT uid FROM auth_token WHERE token = $1 AND until > now()")
+  pg_prepare($dbconn, "check_token", "
+SELECT uid
+FROM auth_token
+WHERE token = $1 AND until > now()")
     or die("Failed to prepare query: " . pg_last_error());
   $result = pg_execute($dbconn, "check_token", array($_SERVER["HTTP_AUTHORIZATION"]));
   $result = pg_fetch_array($result);
@@ -182,7 +185,10 @@ case "POST authenticate":
     http_response_code(400);
     die("email and password need to be provided");
   }
-  pg_prepare($dbconn, "authentication", "SELECT pass, id FROM account WHERE email = $1")
+  pg_prepare($dbconn, "authentication", "
+SELECT pass, id
+FROM account
+WHERE email = $1")
     or die("Failed to prepare query: " . pg_last_error());
   $result = pg_execute($dbconn, "authentication", array($_BODY["email"]));
   $result = pg_fetch_array($result);
@@ -207,11 +213,63 @@ case "GET account":
     http_response_code(401);
     die("Not logged in");
   }
-  pg_prepare($dbconn, "get_account", "SELECT a.id, a.name, a.email, string_agg(d.id::varchar, ',') AS devices FROM account AS a, device AS d WHERE a.id = $1 and d.owner_id = a.id GROUP BY a.id, a.name, a.email")
+  pg_prepare($dbconn, "get_account", "
+SELECT a.id, a.name, a.email, string_agg(d.id::varchar, ',')
+AS devices FROM account AS a, device AS d
+WHERE a.id = $1 and d.owner_id = a.id
+GROUP BY a.id, a.name, a.email")
     or die("Failed to prepare query: " . pg_last_error());
   $result = pg_execute($dbconn, "get_account", array($authentication));
 
-  $data = json_encode(get_fields($result, $query_vars["fields"]??null, $field_types["account"]??null)[0]??null);
+  $data = json_encode(get_fields(
+    $result,
+    $query_vars["fields"]??null,
+    $field_types["account"]??null
+  )??null);
+  if($data == "null") http_response_code(404);
+  echo $data;
+  break;
+
+case "GET devices":
+  if(!is_authenticated()) {
+    http_response_code(401);
+    die("Not logged in");
+  }
+  pg_prepare($dbconn, "get_device", "
+SELECT id, name, owner_id
+FROM device
+WHERE owner_id = $1")
+    or die("Failed to prepare query: " . pg_last_error());
+  $result = pg_execute($dbconn, "get_device", array($authentication));
+
+  $data = json_encode(get_fields(
+    $result,
+    $query_vars["fields"]??null,
+    $field_types["device"]??null
+  )??null);
+  if($data == "null") http_response_code(404);
+  echo $data;
+  break;
+
+case "GET events":
+  if(!is_authenticated()) {
+    http_response_code(401);
+    die("Not logged in");
+  }
+  $order_dir = isset($query_vars["reverse"]) ? "ASC" : "DESC";
+  pg_prepare($dbconn, "get_event", "
+SELECT e.t, e.device_id, e.type
+FROM event_unix AS e, device AS d
+WHERE d.owner_id = $1 AND e.device_id = d.id
+ORDER BY e.t ${order_dir}")
+    or die("Failed to prepare query: " . pg_last_error());
+  $result = pg_execute($dbconn, "get_event", array($authentication));
+
+  $data = json_encode(get_fields(
+    $result,
+    $query_vars["fields"]??null,
+    $field_types["event"]??null
+  )??null);
   if($data == "null") http_response_code(404);
   echo $data;
   break;
