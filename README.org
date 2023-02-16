@@ -92,6 +92,35 @@ Registers a new account.
 
   Name of the account, defaults to an empty string.
 
+*** PATCH account
+Modifies the account associated with the provided authorization token.
+
+**** Headers:
+- *Authorization* (/required/)
+
+  An authorization token (very non-standard).
+
+**** POST agruments:
+- *name* (string)
+
+  New account name.
+
+- *email* (string)
+
+  New account e-mail.
+
+- *password* (string)
+
+  New account password.
+
+*** DELETE account
+Deletes the account associated with the provided authorization token.
+
+**** Headers:
+- *Authorization* (/required/)
+
+  An authorization token (very non-standard).
+
 *** GET devices
 Gets all devices associated with the provided authorization token.
 
