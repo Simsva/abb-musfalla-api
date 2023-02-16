@@ -303,6 +303,95 @@ VALUES ($1, $2, $3)")
   echo $secret;
   break;
 
+case "PATCH devices":
+  if(!is_authenticated()) {
+    http_response_code(401);
+    die("Not logged in");
+  }
+  if(!isset($_BODY["id"])) {
+    http_response_code(400);
+    die("'id' needs to be provided");
+  }
+
+  pg_prepare($dbconn, "patch_device_permission", "
+SELECT owner_id
+FROM device
+WHERE id = $1")
+    or die("Failed to prepare query: " . pg_last_error());
+  $result = pg_execute($dbconn, "patch_device_permission", array(
+    $_BODY["id"],
+  ));
+  $result = pg_fetch_row($result);
+
+  if($result[0] !== $authorization) {
+    http_response_code(403);
+    die("You do not have permission to PATCH this device");
+  }
+
+  $allowed_keys = array(
+    "name" => "string",
+  );
+
+  $keys = "";
+  $vars = array($_BODY["id"]);
+  $i = 2;
+  foreach($_BODY as $key => $val) {
+    if($key === "id") continue;
+    if(array_key_exists($key, $allowed_keys)) {
+      $keys .= "{$key} = $" . $i++ . ", ";
+      $vars[] = parse_type($val, $allowed_keys[$key]);
+    } else {
+      http_response_code(400);
+      die("Disallowed key: '{$key}'");
+    }
+  }
+  $keys = rtrim($keys, ", ");
+
+  if($keys === "") {
+    http_response_code(400);
+    die("Nothing specified in request body");
+  }
+
+  $sql = "UPDATE device SET " . $keys . " WHERE id = $1";
+  pg_prepare($dbconn, "patch_device", $sql)
+    or die("Failed to prepare query: " . pg_last_error());
+  pg_execute($dbconn, "patch_device", $vars);
+  break;
+
+case "DELETE devices":
+  if(!is_authenticated()) {
+    http_response_code(401);
+    die("Not logged in");
+  }
+  if(!isset($query_vars["id"])) {
+    http_response_code(400);
+    die("'id' query argument needs to be provided");
+  }
+
+  pg_prepare($dbconn, "delete_device_permission", "
+SELECT owner_id
+FROM device
+WHERE id = $1")
+    or die("Failed to prepare query: " . pg_last_error());
+  $result = pg_execute($dbconn, "delete_device_permission", array(
+    $query_vars["id"],
+  ));
+  $result = pg_fetch_row($result);
+
+  if($result[0] !== $authorization) {
+    http_response_code(403);
+    die("You do not have permission to DELETE this device");
+  }
+
+  pg_prepare($dbconn, "delete_device", "
+DELETE FROM device
+WHERE id = $1")
+    or die("Failed to prepare query: " . pg_last_error());
+  pg_execute($dbconn, "delete_device", array(
+    $query_vars["id"],
+  ));
+  break;
+
 case "GET events":
   if(!is_authenticated()) {
     http_response_code(401);
@@ -313,7 +402,7 @@ case "GET events":
 SELECT e.t, e.device_id, e.type
 FROM event_unix AS e, device AS d
 WHERE d.owner_id = $1 AND e.device_id = d.id
-ORDER BY e.t ${order_dir}")
+ORDER BY e.t {$order_dir}")
     or die("Failed to prepare query: " . pg_last_error());
   $result = pg_execute($dbconn, "get_event", array($authorization));
 

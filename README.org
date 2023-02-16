@@ -73,7 +73,7 @@ Gets account infomration for the account associated with the provided authorizat
   Comma separated list of which fields to return.
 
 **** Status codes:
-- ~401~ Not authorized
+- ~401~ Not authenticated
 - ~404~ Nothing returned
 
 *** POST account
@@ -106,7 +106,7 @@ Gets all devices associated with the provided authorization token.
   Comma separated list of which fields to return.
 
 **** Status codes:
-- ~401~ Not authorized
+- ~401~ Not authenticated
 - ~404~ Nothing returned
 
 *** POST devices
@@ -122,6 +122,46 @@ Returns a secret identifying the device which can not be generated again.
 - *name*
 
   Name of the device, defaults to an empty string.
+
+*** PATCH devices
+Modify an existing device.
+
+**** Headers:
+- *Authorization* (/required/)
+
+  An authorization token (very non-standard).
+
+**** PATCH arguments:
+- *id* (/required/)
+
+  ID of the device to be modified.
+
+- *name* (string)
+
+  New name of the device.
+
+**** Status codes:
+- ~400~ Malformed request
+- ~401~ Not authenticated
+- ~403~ Not allowed to modify the specified device
+
+*** DELETE devices
+Delete a device.
+
+**** Headers:
+- *Authorization* (/required/)
+
+  An authorization token (very non-standard).
+
+**** Query arguments:
+- *id* (/required/)
+
+  ID of the device to be deleted.
+
+**** Status codes:
+- ~400~ Malformed request
+- ~401~ Not authenticated
+- ~403~ Not allowed to delete the specified device
 
 *** GET events
 Gets events for all devices associated with the provided authorization token.
@@ -141,5 +181,5 @@ Gets events for all devices associated with the provided authorization token.
   If present, will sort events by ascending instead of descending time.
 
 **** Status codes:
-- ~401~ Not authorized
+- ~401~ Not authenticated
 - ~404~ Nothing returned
