@@ -10,7 +10,7 @@
 
 An API for use by our smart rat trap. Source code availabe at [[https://github.com/Simsva/abb-musfalla-api][GitHub]]. Documentation availabe at GitHub and at [[https://api.simsva.se/musfalla_docs.html][simsva.se]].
 
-See [[https://github.com/Simsva/abb-musfalla-api/blob/master/nginx_example.conf][nginx_example.conf]] for information on running the API.
+See [[https://github.com/Simsva/abb-musfalla-api/blob/master/nginx_example.conf][nginx_example.conf]] for information on running the API. It also requires PHPMailer to be installed via Composer.
 
 * Basic information
 ** Path arguments
@@ -82,17 +82,21 @@ Gets account infomration for the account associated with the provided authorizat
 Registers a new account.
 
 **** POST arguments:
-- *email* (/required/)
+- *email* (string, /required/)
 
   E-mail of the account.
 
-- *password* (/required/)
+- *password* (string, /required/)
 
   Password of the account.
 
-- *name*
+- *name* (string)
 
   Name of the account, defaults to an empty string.
+
+- *mail_notification* (boolean)
+
+  Whether to receive mail notifications. Defaults to ~true~.
 
 *** PATCH account
 Modifies the account associated with the provided authorization token.
@@ -116,6 +120,10 @@ Modifying password invalidates all active authorization tokens.
 - *password* (string)
 
   New account password.
+
+- *mail_notification* (boolean)
+
+  Whether to receive mail notifications.
 
 *** DELETE account
 Deletes the account associated with the provided authorization token.
@@ -220,7 +228,7 @@ Gets events for all devices associated with the provided authorization token.
 - ~404~ Nothing returned
 
 *** POST events
-Adds an event from a device.
+Adds an event from a device. Notifies the owner of the device using e-mail if mail notifications are enabled.
 
 **** Headers:
 - *Authorization* (/required/)
@@ -232,4 +240,4 @@ Adds an event from a device.
 
   Type of event.
 
-  Accepted values are ~close~ or ~open.~
+  Accepted values are ~close~ or ~open~.

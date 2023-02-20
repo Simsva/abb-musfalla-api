@@ -1,8 +1,17 @@
 <?php // -*- mode: php; -*-
 // vim: ft=php sw=2 ts=2 et
 
+// NOTE: required PHPMailer installed with Composer
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\SMTP;
+use PHPMailer\PHPMailer\Exception;
+
+// Load Composer's autoloader
+require 'vendor/autoload.php';
+
 // Load config
 $config = include("./config/musfalla.php");
+$mail = null;
 
 // CORS
 header("Access-Control-Allow-Origin: " . $config["origin"]);
@@ -187,6 +196,19 @@ function is_device($device_id = null) {
     return $device !== null;
 }
 
+function init_mail() {
+  global $config, $mail;
+  $mail             = new PHPMailer();
+
+  $mail->IsSMTP();
+  $mail->SMTPAuth   = $config["smtp_auth"];
+  $mail->SMTPSecure = $config["smtp_secure"];
+  $mail->Host       = $config["smtp_host"];
+  $mail->Port       = $config["smtp_port"];
+  $mail->Username   = $config["smtp_username"];
+  $mail->Password   = $config["smtp_password"];
+}
+
 $field_types = array(
   "event" => array(
     "t" => "int",
@@ -202,6 +224,7 @@ $field_types = array(
     "id" => "int",
     "name" => "string",
     "devices" => "array:int",
+    "mail_notification" => "bool",
   ),
 );
 
@@ -277,10 +300,10 @@ case "GET account":
     die("Not logged in");
   }
   prepare($dbconn, "get_account_devices", "
-SELECT a.id, a.name, a.email, string_agg(d.id::varchar, ',') AS devices
+SELECT a.id, a.name, a.email, a.mail_notification, string_agg(d.id::varchar, ',') AS devices
 FROM account AS a, device AS d
 WHERE a.id = $1 AND d.owner_id = a.id
-GROUP BY a.id, a.name, a.email");
+GROUP BY a.id, a.name, a.email, a.mail_notification");
   $result = pg_execute($dbconn, "get_account_devices", array($authorization));
 
   $data = json_encode(get_fields(
@@ -295,7 +318,7 @@ GROUP BY a.id, a.name, a.email");
 
   // if $data is null, account may not have any devices
   prepare($dbconn, "get_account", "
-SELECT id, name, email, '' AS devices
+SELECT id, name, email, mail_notification, '' AS devices
 FROM account
 WHERE id = $1");
   $result = pg_execute($dbconn, "get_account", array($authorization));
@@ -316,12 +339,13 @@ case "POST account":
   }
 
   prepare($dbconn, "post_account", "
-INSERT INTO account (name, email, pass)
-VALUES ($1, $2, $3)");
+INSERT INTO account (name, email, pass, mail_notification)
+VALUES ($1, $2, $3, $4)");
   pg_execute($dbconn, "post_account", array(
     $_BODY["name"]??"",
     $_BODY["email"],
     password_hash($_BODY["password"], PASSWORD_BCRYPT),
+    as_sql_bool($_BODY["mail_notification"]??true),
   ));
   break;
 
@@ -335,6 +359,7 @@ case "PATCH account":
     "name" => "string",
     "email" => "string",
     "password" => "string",
+    "mail_notification" => "bool",
   );
 
   $keys = "";
@@ -351,7 +376,10 @@ case "PATCH account":
       }
 
       $keys .= "{$key} = $" . $i++ . ", ";
-      $vars[] = parse_type($val, $allowed_keys[$key]);
+      $tmp = parse_type($val, $allowed_keys[$key]);
+      if($allowed_keys[$key] === "bool")
+        $tmp = as_sql_bool($tmp);
+      $vars[] = $tmp;
     } else {
       http_response_code(400);
       die("Disallowed key: '{$key}'");
@@ -580,15 +608,14 @@ WHERE d.id = $1");
 
   // sql bool
   if($result["mail_notification"] === "t") {
-    mail(
-      $result["email"],
-      $mail_subject,
-      wordwrap($mail_body, 70),
-      array(
-        "From" => $config["mail_sender"],
-        "X-Mailer" => "PHP/" . phpversion(),
-      )
-    );
+    init_mail();
+
+    $mail->isHtml(false);
+    $mail->Subject = $mail_subject;
+    $mail->Body = wordwrap($mail_body, 70);
+    $mail->addAddress($result["email"]);
+    $mail->setFrom($config["smtp_sender"], $result["name"]);
+    $mail->send();
     die("sent mail");
   }
   break;
